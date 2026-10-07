@@ -143,7 +143,7 @@ jobs:
 
 
       # =========================================================
-      # 9 - Create folders
+      # 9 - Create Tauri folders
       # =========================================================
       - name: Create Tauri folders
         shell: pwsh
@@ -284,8 +284,9 @@ jobs:
             ($lines -join "`r`n") `
             -Encoding UTF8
 
+
           # IMPORTANT:
-          # This prevents the Windows console/CMD window.
+          # Prevent Windows CMD/Console window
           $main = @(
             '#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]'
             ''
@@ -403,6 +404,7 @@ jobs:
           $file = "src/App.tsx"
           $content = Get-Content $file -Raw
 
+
           # -------------------------------------------------------
           # Add native API import
           # -------------------------------------------------------
@@ -420,31 +422,33 @@ jobs:
           # -------------------------------------------------------
           # Add robust time input helper
           # -------------------------------------------------------
-          if ($content -notmatch "const handleTimeInput") {
+          if ($content -notmatch "handleTimeInput") {
 
-            $helper = @'
-  const handleTimeInput = (
-    value: string,
-    setter: React.Dispatch<React.SetStateAction<string>>,
-    max: number
-  ) => {
-    const cleaned = value.replace(/\D/g, '').slice(0, 2);
+            $helperLines = @(
+              "  const handleTimeInput = ("
+              "    value: string,"
+              "    setter: React.Dispatch<React.SetStateAction<string>>,"
+              "    max: number"
+              "  ) => {"
+              "    const cleaned = value.replace(/\D/g, '').slice(0, 2);"
+              ""
+              "    if (cleaned === '') {"
+              "      setter('');"
+              "      return;"
+              "    }"
+              ""
+              "    const numericValue = parseInt(cleaned, 10);"
+              ""
+              "    if (numericValue > max) {"
+              "      setter(String(max));"
+              "    } else {"
+              "      setter(cleaned);"
+              "    }"
+              "  };"
+              ""
+            )
 
-    if (cleaned === '') {
-      setter('');
-      return;
-    }
-
-    const numericValue = parseInt(cleaned, 10);
-
-    if (numericValue > max) {
-      setter(String(max));
-    } else {
-      setter(cleaned);
-    }
-  };
-
-'@
+            $helper = $helperLines -join "`r`n"
 
             $content = $content.Replace(
               "  const handleApplyPreset =",
@@ -454,50 +458,74 @@ jobs:
 
 
           # -------------------------------------------------------
-          # HOURS onChange
+          # Fix hours
           # -------------------------------------------------------
-          $content = [regex]::Replace(
-            $content,
-            '(?s)(<input\s+type="text"\s+inputMode="numeric"\s+maxLength=\{2\}\s+disabled=\{isRunning\}\s+value=\{displayHours\}\s+onFocus=\{\(e\) => e\.target\.select\(\)\}\s+onChange=\{).*?(\}\s+onBlur=\{\(\) => \{)',
-            '$1(e) => {`r`n                    handleTimeInput(e.target.value, setHoursStr, 99);`r`n                  $2',
-            1
+          $content = $content.Replace(
+            "onChange={(e) => setHoursStr(e.target.value)}",
+            "onChange={(e) => handleTimeInput(e.target.value, setHoursStr, 99)}"
           )
 
 
           # -------------------------------------------------------
-          # MINUTES onChange
+          # Fix minutes
           # -------------------------------------------------------
-          $content = [regex]::Replace(
-            $content,
-            '(?s)(value=\{displayMinutes\}\s+onFocus=\{\(e\) => e\.target\.select\(\)\}\s+onChange=\{).*?(\}\s+onBlur=\{\(\) => \{)',
-            'value={displayMinutes}`r`n                  onFocus={(e) => e.target.select()}`r`n                  onChange={(e) => {`r`n                    handleTimeInput(e.target.value, setMinutesStr, 59);`r`n                  }}`r`n                  $2',
-            1
+          $content = $content.Replace(
+            "onChange={(e) => setMinutesStr(e.target.value)}",
+            "onChange={(e) => handleTimeInput(e.target.value, setMinutesStr, 59)}"
           )
 
 
           # -------------------------------------------------------
-          # SECONDS onChange
+          # Fix seconds
           # -------------------------------------------------------
-          $content = [regex]::Replace(
-            $content,
-            '(?s)(value=\{displaySeconds\}\s+onFocus=\{\(e\) => e\.target\.select\(\)\}\s+onChange=\{).*?(\}\s+onBlur=\{\(\) => \{)',
-            'value={displaySeconds}`r`n                  onFocus={(e) => e.target.select()}`r`n                  onChange={(e) => {`r`n                    handleTimeInput(e.target.value, setSecondsStr, 59);`r`n                  }}`r`n                  $2',
-            1
+          $content = $content.Replace(
+            "onChange={(e) => setSecondsStr(e.target.value)}",
+            "onChange={(e) => handleTimeInput(e.target.value, setSecondsStr, 59)}"
           )
 
 
           # -------------------------------------------------------
-          # Native action when timer reaches zero
+          # Support number inputs if present
+          # -------------------------------------------------------
+          $content = $content.Replace(
+            "onChange={(e) => setHours(Number(e.target.value))}",
+            "onChange={(e) => handleTimeInput(e.target.value, setHoursStr, 99)}"
+          )
+
+          $content = $content.Replace(
+            "onChange={(e) => setMinutes(Number(e.target.value))}",
+            "onChange={(e) => handleTimeInput(e.target.value, setMinutesStr, 59)}"
+          )
+
+          $content = $content.Replace(
+            "onChange={(e) => setSeconds(Number(e.target.value))}",
+            "onChange={(e) => handleTimeInput(e.target.value, setSecondsStr, 59)}"
+          )
+
+
+          # -------------------------------------------------------
+          # Make sure inputs select existing value on focus
+          # -------------------------------------------------------
+          $content = $content.Replace(
+            'onFocus={(e) => e.target.select()}',
+            'onFocus={(e) => e.target.select()}'
+          )
+
+
+          # -------------------------------------------------------
+          # Connect native Windows action to timer
           # -------------------------------------------------------
           if ($content -notmatch "executeNativeAction\(actionType") {
 
-            $old = @(
+            $oldLines = @(
               "            sounds.playAlarm();"
               "            setIsLockScreenActive(true);"
               "            return 0;"
-            ) -join "`r`n"
+            )
 
-            $new = @(
+            $old = $oldLines -join "`r`n"
+
+            $newLines = @(
               "            sounds.playAlarm();"
               "            setIsLockScreenActive(true);"
               ""
@@ -506,22 +534,34 @@ jobs:
               "            });"
               ""
               "            return 0;"
-            ) -join "`r`n"
+            )
+
+            $new = $newLines -join "`r`n"
 
             if ($content.Contains($old)) {
+
               $content = $content.Replace($old, $new)
+
               Write-Host "Native Windows action connected." -ForegroundColor Green
+
             }
             else {
+
               Write-Host "Timer block not found." -ForegroundColor Yellow
+
             }
           }
 
 
+          # -------------------------------------------------------
+          # Save
+          # -------------------------------------------------------
           Set-Content `
             $file `
             $content `
             -Encoding UTF8
+
+          Write-Host "App.tsx updated successfully." -ForegroundColor Green
 
 
       # =========================================================
@@ -545,6 +585,7 @@ jobs:
           )
 
           foreach ($file in $files) {
+
             if (-not (Test-Path $file)) {
               Write-Host "MISSING: $file" -ForegroundColor Red
               exit 1
